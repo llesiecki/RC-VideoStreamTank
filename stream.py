@@ -119,6 +119,7 @@ async def driver(websocket, path):
 			if cam_pos > 7:
 				cam_pos = 7
 			_thread.start_new_thread( set_cam, (cam_pos, ) )
+
 		if key[1] == "ArrowDown" and key[0] == "dn":
 			cam_pos -= 0.2
 			if cam_pos < 3:
