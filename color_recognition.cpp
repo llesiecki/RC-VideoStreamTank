@@ -1,15 +1,14 @@
 #include <fstream>
 #include <iostream>
-#include <sys/time.h>
 #include <raspicam/raspicam.h>
 #include <unistd.h>
 #include <cstring>
 #include <array>
 #include <algorithm>
+#include <cmath>
 
 constexpr unsigned int HRESOLUTION = 1280;
 constexpr unsigned int VRESOLUTION = 960;
-constexpr unsigned int ERODE = 10;
 
 void saveBMP(unsigned char *data, unsigned int width, unsigned int height, std::string filename)
 {
@@ -58,7 +57,7 @@ void saveBMP(unsigned char *data, unsigned int width, unsigned int height, std::
 	FILE* f = fopen(filename.c_str(), "wb");
 	fwrite(&header, 1, sizeof(BMP_Header), f);
 	for(int i = height; i >= 0; i--)
-		fwrite(data + width*i*3, 3, width, f);
+		fwrite(data + width * i * 3, 3, width, f);
 	fclose(f);
 }
 
@@ -96,7 +95,7 @@ void configure_camera(raspicam::RaspiCam& cam)
 	*/
 	cam.setAWB(raspicam::RASPICAM_AWB_FLUORESCENT);
 	
-    if(!cam.open())
+	if(!cam.open())
 	{
 		throw std::runtime_error("Error opening camera.\n");
 	}
@@ -107,78 +106,149 @@ void configure_camera(raspicam::RaspiCam& cam)
 
 std::array<unsigned char, 3> rgb2hsv(const std::array<unsigned char, 3> rgb)
 {
-	float h = 0;
-	unsigned char s, v;
+	float h, s, v;
 	
 	const std::pair<unsigned char, unsigned char> minmax =
 		std::minmax({rgb[0], rgb[1], rgb[2]});
 	
-	const unsigned char min = minmax.first;
-	const unsigned char max = minmax.second;
-	const unsigned char delta = max - min;
+	const float min = minmax.first;
+	const float max = minmax.second;// float <---> unsigned char
+	const float delta = max - min;
 	
-	//std::cout << (int)min << ' ' << (int)max << ' ' << (int)delta << '\n'; 
-	
-	if(delta == 0 || max == 0)
+	if(delta == 0.0f || max == 0.0f)
 		return std::array<unsigned char, 3>();
 	
-	s = (int)delta * 255 / max;
+	s = delta * 255.0f / max;
 	v = max;
 	
-	if( rgb[0] == max )
-        h = ( (float)rgb[1] - rgb[2] ) / delta; // between yellow & magenta
-    else if( rgb[1] == max )
-        h = 2.0 + ( (float)rgb[2] - rgb[0] ) / delta;  // between cyan & yellow
-    else
-        h = 4.0 + ( (float)rgb[0] - rgb[1] ) / delta;  // between magenta & cyan
+	if (rgb[0] == max)
+		h = (rgb[1] - rgb[2]) / delta; // between yellow & magenta
+	else if (rgb[1] == max)
+		h = 2.0f + (rgb[2] - rgb[0]) / delta;  // between cyan & yellow
+	else
+		h = 4.0f + (rgb[0] - rgb[1]) / delta;  // between magenta & cyan
 	
-    h *= 60.0; // degrees
+	h *= 60.0f; // degrees
 
-    if( h < 0.0 )
-        h += 360.0;
+	if( h < 0.0f )
+		h += 360.0f;
 	
-	h *= 255.0f/360;
+	h *= 255.0f / 360.0f;
 	
 	return {h, s, v};
+}
+
+void treshold_image(unsigned char *data, unsigned char *output, float hue, float tolerance)
+{	
+	unsigned char* in = data;
+	unsigned char* out = output;
+	
+	for(int y = 0; y < VRESOLUTION; ++y)
+	{
+		for(int x = 0; x < HRESOLUTION; ++x)
+		{
+			std::array<unsigned char, 3> hsv = rgb2hsv({*(in + 2), *(in + 1), *in});
+			
+			const float diff = std::abs(hsv[0] - hue);
+			
+			if((diff < tolerance || diff > 255.0f - tolerance) && hsv[1] > 150 && hsv[2] > 30)
+			{
+				*out = 255;
+			}
+			else
+			{
+				*out = 0;
+			}
+			
+			in += 3;
+			++out;
+		}
+	}
+}
+
+void fast_erode(unsigned char *data, unsigned char *output, size_t step)
+{
+	for(int y = step; y < VRESOLUTION - step; y += step)
+	{
+		for(int x = step; x < HRESOLUTION - step; x += step)
+		{
+			size_t index = y * HRESOLUTION + x;
+			
+			size_t index1 = (y - step)*HRESOLUTION + (x - step);
+			size_t index2 = (y - step)*HRESOLUTION + (x + step);
+			size_t index3 = (y + step)*HRESOLUTION + (x - step);
+			size_t index4 = (y + step)*HRESOLUTION + (x + step);
+			
+			output[index] = data[index] && data[index1] && data[index2] && data[index3] && data[index4];
+			output[index] *= 255;
+		}
+	}
+}
+
+void convert_8_to_24_bit(unsigned char *in, unsigned char *out, unsigned char *color_source = nullptr)
+{
+	for(int y = 0; y < VRESOLUTION; ++y)
+	{
+		for(int x = 0; x < HRESOLUTION; ++x)
+		{
+			size_t index = y * HRESOLUTION * 3 + x * 3;
+			if(color_source != nullptr)
+			{
+				if(in[y * HRESOLUTION + x] != 0)
+				{
+					out[index] = color_source[index];
+					out[index + 1] = color_source[index + 1];
+					out[index + 2] = color_source[index + 2];
+				}
+				else
+				{
+					out[index] = 0;
+					out[index + 1] = 0;
+					out[index + 2] = 0;
+				}
+			}
+			else
+			{
+				out[index] = in[y * HRESOLUTION + x];
+				out[index + 1] = 0;
+				out[index + 2] = 0;
+			}
+		}
+	}
 }
  
 int main(int argc, char **argv)
 {
-  std::array<unsigned char, 3> hsv = rgb2hsv({0, 17, 26});
-
-  std::cout << (int)hsv[0] << ' ' << (int)hsv[1] << ' ' << (int)hsv[2] << '\n';
-
-  raspicam::RaspiCam camera;
-
-  configure_camera(camera);
-
-  size_t img_size = camera.getImageTypeSize(raspicam::RASPICAM_FORMAT_RGB);
-
-  unsigned char *data = new unsigned char[img_size];
-  unsigned char *dataRnE = new unsigned char[img_size];
-  
-  camera.grab();
-  camera.retrieve (data, raspicam::RASPICAM_FORMAT_IGNORE);
-  saveBMP(data, HRESOLUTION, VRESOLUTION, "raw.bmp");
-  
-  for(int y = 0; y < VRESOLUTION; y++)
-    for(int x = 0; x < HRESOLUTION; x++)
-    {
-      index = y*HRESOLUTION*3 + x*3;
-      std::array<unsigned char, 3> hsv = rgb2hsv({data[index + 2], data[index + 1], data[index]});
-
-      if((hsv[0] < 7 || hsv[0] > 249) && hsv[1] > 0 && hsv[2] > 0)
-      {
-        dataRnE[index] = data[index];
-        dataRnE[index + 1] = data[index + 1];
-        dataRnE[index + 2] = data[index + 2];
-      }
-    }
-  
-  saveBMP(dataRnE, camera.getWidth(), camera.getHeight(), "red.bmp");
-  
-  delete [] data;
-  delete [] dataRnE;
-  
-  return 0;
+	raspicam::RaspiCam camera;
+	
+	configure_camera(camera);
+	
+	size_t img_size = camera.getImageTypeSize(raspicam::RASPICAM_FORMAT_RGB);
+	
+	unsigned char *data = new unsigned char[img_size];
+	unsigned char *bmp_buffer = new unsigned char[img_size];
+	unsigned char *buffer1 = new unsigned char[VRESOLUTION * HRESOLUTION];
+	unsigned char *buffer2 = new unsigned char[VRESOLUTION * HRESOLUTION];
+	
+	camera.grab();
+	camera.retrieve(data, raspicam::RASPICAM_FORMAT_IGNORE);
+	
+	saveBMP(data, HRESOLUTION, VRESOLUTION, "raw.bmp");
+	
+	// pick red color (hue = 3, tolerance = 2)
+	// from 'data' and save it to the buffer1
+	treshold_image(data, buffer1, 3, 2);
+	
+	convert_8_to_24_bit(buffer1, bmp_buffer, data);
+	saveBMP(bmp_buffer, camera.getWidth(), camera.getHeight(), "red.bmp");
+	
+	// erode the buffer1 with setep = 3px
+	// and save the result into buffer2
+	fast_erode(buffer1, buffer2, 3);
+	
+	delete[] data;
+	delete[] buffer1;
+	delete[] buffer2;
+	
+	return 0;
 }
