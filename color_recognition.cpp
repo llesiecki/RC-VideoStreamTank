@@ -216,6 +216,30 @@ void convert_8_to_24_bit(unsigned char *in, unsigned char *out, unsigned char *c
 		}
 	}
 }
+
+std::pair<size_t, size_t> calculate_target_pos(unsigned char *data)
+{
+	std::pair<size_t, size_t> pos;
+	size_t count = 0;
+	
+	for(int y = 0; y < VRESOLUTION; ++y)
+	{
+		for(int x = 0; x < HRESOLUTION; ++x)
+		{
+			if(data[y * HRESOLUTION + x])
+			{
+				pos.first += x;
+				pos.second += y;
+				++count;
+			}
+		}
+	}
+	
+	pos.first /= count;
+	pos.second /= count;
+	
+	return pos;
+}
  
 int main(int argc, char **argv)
 {
