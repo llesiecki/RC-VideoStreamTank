@@ -270,6 +270,23 @@ int main(int argc, char **argv)
 	// and save the result into buffer2
 	fast_erode(buffer1, buffer2, 3);
 	
+	convert_8_to_24_bit(buffer2, bmp_buffer);
+	
+	// calculate the target position
+	std::pair<size_t, size_t> pos = calculate_target_pos(buffer2);
+	
+	// mark the target position with a green square with size of 10px
+	for(int y = pos.second - 5; y < pos.second + 5; ++y)
+		for(int x = pos.first - 5; x < pos.first + 5; ++x)
+		{
+			size_t index = y * HRESOLUTION * 3 + x * 3;
+			bmp_buffer[index] = 0;
+			bmp_buffer[index + 1] = 255;
+			bmp_buffer[index + 2] = 0;
+		}
+		
+	saveBMP(bmp_buffer, camera.getWidth(), camera.getHeight(), "red_eroded.bmp");
+	
 	delete[] data;
 	delete[] buffer1;
 	delete[] buffer2;
