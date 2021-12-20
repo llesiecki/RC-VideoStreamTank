@@ -66,22 +66,22 @@ void configure_camera(raspicam::RaspiCam& cam)
 	cam.setRotation(180);
 	cam.setCaptureSize(HRESOLUTION, VRESOLUTION);
 	
-	// Set image brightness [0,100]
+	// set image brightness [0,100]
 	cam.setBrightness(50);
 	
-	//Set image sharpness (-100 to 100)
+	// set image sharpness (-100 to 100)
 	cam.setSharpness(0);
 	
-	//Set image contrast (-100 to 100)
+	// set image contrast (-100 to 100)
 	cam.setContrast(0);
 	
-	//Set capture ISO (100 to 800)
+	// set capture ISO (100 to 800)
 	cam.setISO(800);
 	
 	//Set image saturation (-100 to 100)
 	cam.setSaturation(0);
 	
-	/* Set cmaera white balance, available options:
+	/* set cmaera white balance, available options:
 		raspicam::RASPICAM_AWB_OFF
 		raspicam::RASPICAM_AWB_AUTO
 		raspicam::RASPICAM_AWB_SUNLIGHT
@@ -100,7 +100,7 @@ void configure_camera(raspicam::RaspiCam& cam)
 		throw std::runtime_error("Error opening camera.\n");
 	}
 	
-	// Give some time for the camera to stabilize
+	// give some time for the camera to stabilize
 	sleep(1);
 }
 
@@ -112,7 +112,7 @@ std::array<unsigned char, 3> rgb2hsv(const std::array<unsigned char, 3> rgb)
 		std::minmax({rgb[0], rgb[1], rgb[2]});
 	
 	const float min = minmax.first;
-	const float max = minmax.second;// float <---> unsigned char
+	const float max = minmax.second;
 	const float delta = max - min;
 	
 	if(delta == 0.0f || max == 0.0f)
@@ -124,9 +124,9 @@ std::array<unsigned char, 3> rgb2hsv(const std::array<unsigned char, 3> rgb)
 	if (rgb[0] == max)
 		h = (rgb[1] - rgb[2]) / delta; // between yellow & magenta
 	else if (rgb[1] == max)
-		h = 2.0f + (rgb[2] - rgb[0]) / delta;  // between cyan & yellow
+		h = 2.0f + (rgb[2] - rgb[0]) / delta; // between cyan & yellow
 	else
-		h = 4.0f + (rgb[0] - rgb[1]) / delta;  // between magenta & cyan
+		h = 4.0f + (rgb[0] - rgb[1]) / delta; // between magenta & cyan
 	
 	h *= 60.0f; // degrees
 
@@ -235,8 +235,16 @@ std::pair<size_t, size_t> calculate_target_pos(unsigned char *data)
 		}
 	}
 	
-	pos.first /= count;
-	pos.second /= count;
+	if (count != 0) // calculate the target position
+	{
+		pos.first /= count;
+		pos.second /= count;
+	}
+	else // if there is no target, return the center of the image
+	{
+		pos.first = HRESOLUTION / 2;
+		pos.second = VRESOLUTION / 2;
+	}
 	
 	return pos;
 }
@@ -290,6 +298,7 @@ int main(int argc, char **argv)
 	delete[] data;
 	delete[] buffer1;
 	delete[] buffer2;
+	delete[] bmp_buffer;
 	
 	return 0;
 }
